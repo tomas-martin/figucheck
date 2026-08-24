@@ -4,7 +4,9 @@ import { UserProfile, TradeMatch } from '../types';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+const isPlaceholder = supabaseUrl.includes('tu-proyecto') || supabaseAnonKey.includes('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...');
+
+export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey && !isPlaceholder);
 
 export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey)
@@ -13,50 +15,68 @@ export const supabase = isSupabaseConfigured
 // ─── AUTH FUNCTIONS ─────────────────────────────────────────────
 
 export async function signUp(username: string, password: string, phoneWhatsapp?: string): Promise<{ success: boolean; error?: string; userId?: string }> {
-  if (!supabase) return { success: false, error: 'Supabase no está configurado.' };
+  if (!isSupabaseConfigured || !supabase) {
+    return {
+      success: false,
+      error: 'Configurá la URL y Key reales de tu proyecto de Supabase en .env.local'
+    };
+  }
 
   // We use a fake email derived from the username for Supabase Auth
   const email = `${username.toLowerCase().replace(/[^a-z0-9_]/g, '')}@figucheck.app`;
 
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: {
-        username: username,
-        phone_whatsapp: phoneWhatsapp || null
+  try {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          username: username,
+          phone_whatsapp: phoneWhatsapp || null
+        }
       }
-    }
-  });
+    });
 
-  if (error) {
-    if (error.message.includes('already registered')) {
-      return { success: false, error: 'Ese nombre de usuario ya está registrado.' };
+    if (error) {
+      if (error.message.includes('already registered')) {
+        return { success: false, error: 'Ese nombre de usuario ya está registrado.' };
+      }
+      return { success: false, error: error.message };
     }
-    return { success: false, error: error.message };
+
+    return { success: true, userId: data.user?.id };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error de conexión con Supabase (verificá tu URL en .env.local).' };
   }
-
-  return { success: true, userId: data.user?.id };
 }
 
 export async function signIn(username: string, password: string): Promise<{ success: boolean; error?: string; userId?: string }> {
-  if (!supabase) return { success: false, error: 'Supabase no está configurado.' };
+  if (!isSupabaseConfigured || !supabase) {
+    return {
+      success: false,
+      error: 'Configurá la URL y Key reales de tu proyecto de Supabase en .env.local'
+    };
+  }
 
   const email = `${username.toLowerCase().replace(/[^a-z0-9_]/g, '')}@figucheck.app`;
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password
-  });
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
 
-  if (error) {
-    if (error.message.includes('Invalid login')) {
-      return { success: false, error: 'Usuario o contraseña incorrectos.' };
+    if (error) {
+      if (error.message.includes('Invalid login')) {
+        return { success: false, error: 'Usuario o contraseña incorrectos.' };
+      }
+      return { success: false, error: error.message };
     }
-    return { success: false, error: error.message };
-  }
 
-  return { success: true, userId: data.user?.id };
+    return { success: true, userId: data.user?.id };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error de conexión con Supabase (verificá tu URL en .env.local).' };
+  }
 }
 
 export async function signOut(): Promise<void> {
@@ -67,21 +87,24 @@ export async function signOut(): Promise<void> {
 export async function getCurrentUser(): Promise<UserProfile | null> {
   if (!supabase) return null;
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
 
-  // Fetch profile from profiles table
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('username, phone_whatsapp')
-    .eq('id', user.id)
-    .single();
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('username, phone_whatsapp')
+      .eq('id', user.id)
+      .single();
 
-  return {
-    id: user.id,
-    username: profile?.username || user.user_metadata?.username || 'Coleccionista',
-    phoneWhatsapp: profile?.phone_whatsapp || undefined
-  };
+    return {
+      id: user.id,
+      username: profile?.username || user.user_metadata?.username || 'Coleccionista',
+      phoneWhatsapp: profile?.phone_whatsapp || undefined
+    };
+  } catch (err) {
+    return null;
+  }
 }
 
 // ─── PROFILE UPDATE ─────────────────────────────────────────────
@@ -169,7 +192,6 @@ export async function fetchTradeMatches(
   if (!supabase) return [];
 
   try {
-    // My missing and repeated sets
     const myMissingSet = new Set<number>();
     const myRepeatedSet = new Set<number>();
 
@@ -179,7 +201,6 @@ export async function fetchTradeMatches(
       else if (count > 1) myRepeatedSet.add(i);
     }
 
-    // Fetch all other profiles
     const { data: profiles, error: pError } = await supabase
       .from('profiles')
       .select('id, username, phone_whatsapp')
@@ -187,7 +208,6 @@ export async function fetchTradeMatches(
 
     if (pError || !profiles || profiles.length === 0) return [];
 
-    // Fetch all user_stickers from other users
     const { data: allStickersData, error: sError } = await supabase
       .from('user_stickers')
       .select('user_id, sticker_number, count')
@@ -195,7 +215,6 @@ export async function fetchTradeMatches(
 
     if (sError || !allStickersData) return [];
 
-    // Group stickers by user_id
     const otherUsersMap: Record<string, Record<number, number>> = {};
     allStickersData.forEach((row) => {
       if (!otherUsersMap[row.user_id]) otherUsersMap[row.user_id] = {};
@@ -210,7 +229,6 @@ export async function fetchTradeMatches(
       const stickersTheyHaveThatINeed: number[] = [];
       const stickersIHaveThatTheyNeed: number[] = [];
 
-      // Stickers they have that I'm missing
       Object.entries(uStickers).forEach(([numStr, count]) => {
         const num = Number(numStr);
         if (count >= 1 && myMissingSet.has(num)) {
@@ -218,7 +236,6 @@ export async function fetchTradeMatches(
         }
       });
 
-      // Stickers I have repeated that they're missing
       myRepeatedSet.forEach((num) => {
         const theirCount = uStickers[num] || 0;
         if (theirCount === 0) {
