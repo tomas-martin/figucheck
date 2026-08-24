@@ -1,8 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
 import { UserProfile, TradeMatch } from '../types';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+let rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const rawKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+// Clean up URL in case /rest/v1 or trailing slashes were accidentally included
+const supabaseUrl = rawUrl
+  .trim()
+  .replace(/\/rest\/v1\/?$/i, '')
+  .replace(/\/+$/, '');
+
+const supabaseAnonKey = rawKey.trim();
 
 const isPlaceholder = supabaseUrl.includes('tu-proyecto') || supabaseAnonKey.includes('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...');
 
