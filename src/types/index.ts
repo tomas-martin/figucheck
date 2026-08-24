@@ -9,16 +9,16 @@ export interface Team {
   region?: string;
   isActive: boolean;
   sortOrder: number;
-  stickerCount: number; // 15 or 12
-  startNumber: number;  // overall sticker number where this team starts
+  stickerCount: number;
+  startNumber: number;
 }
 
 export interface Sticker {
-  number: number;       // 1 to 252
+  number: number;
   teamId: string;
   teamName: string;
   teamShortName: string;
-  slotNumber: number;   // 1 to 15 (or 1 to 12 for leyendas)
+  slotNumber: number;
   playerName?: string;
   isSpecial?: boolean;
 }
@@ -32,9 +32,24 @@ export interface FilterState {
 }
 
 export interface AlbumStats {
-  total: number;         // 252
-  obtained: number;      // unique stickers owned (count >= 1)
-  missing: number;       // unique stickers missing (count == 0)
-  repeatedTotal: number; // sum of extra copies (count > 1 ? count - 1 : 0)
-  percentage: number;    // obtained / total * 100
+  total: number;
+  obtained: number;
+  missing: number;
+  repeatedTotal: number;
+  percentage: number;
+}
+
+export interface UserProfile {
+  id: string;           // Supabase Auth UUID
+  username: string;
+  phoneWhatsapp?: string;
+}
+
+export interface TradeMatch {
+  userId: string;
+  username: string;
+  phoneWhatsapp?: string;
+  stickersTheyHaveThatINeed: number[];
+  stickersIHaveThatTheyNeed: number[];
+  matchScore: number;
 }

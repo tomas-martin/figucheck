@@ -2,54 +2,73 @@
 
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { TEAMS, ALL_STICKERS, TOTAL_STICKER_COUNT } from '../data/initialData';
-import { Team, Sticker, FilterState, AlbumStats, StickerStatusFilter } from '../types';
+import { Team, Sticker, FilterState, AlbumStats, StickerStatusFilter, UserProfile, TradeMatch } from '../types';
 import {
   isSupabaseConfigured,
+  supabase,
+  getCurrentUser,
+  signUp as authSignUp,
+  signIn as authSignIn,
+  signOut as authSignOut,
+  updateUserProfile,
   syncUserStickersToSupabase,
-  fetchUserStickersFromSupabase
+  fetchUserStickersFromSupabase,
+  fetchTradeMatches
 } from '../lib/supabase';
 import confetti from 'canvas-confetti';
 
 interface AlbumContextType {
+  // Data
   teams: Team[];
   stickers: Sticker[];
   userStickers: Record<number, number>;
   filters: FilterState;
   stats: AlbumStats;
-  syncCode: string;
+  filteredStickers: Sticker[];
+
+  // Auth
+  user: UserProfile | null;
+  isAuthLoading: boolean;
+  authError: string | null;
+  signUp: (username: string, password: string, phoneWhatsapp?: string) => Promise<boolean>;
+  signIn: (username: string, password: string) => Promise<boolean>;
+  signOut: () => Promise<void>;
+  updatePhone: (phone: string) => Promise<boolean>;
+
+  // Sync
   isSyncing: boolean;
   lastSyncTime: string | null;
+  syncCloud: () => Promise<boolean>;
+
+  // Filters
   setFilterTeam: (teamId: string | 'ALL') => void;
   setFilterStatus: (status: StickerStatusFilter) => void;
   setSearchQuery: (query: string) => void;
+
+  // Sticker actions
   incrementSticker: (number: number) => void;
   decrementSticker: (number: number) => void;
   setStickerCount: (number: number, count: number) => void;
   resetAllStickers: () => void;
-  setSyncCode: (code: string) => void;
-  syncCloud: () => Promise<boolean>;
+
+  // Trade
+  getTradeMatches: () => Promise<TradeMatch[]>;
   generateWhatsAppShareText: () => string;
-  filteredStickers: Sticker[];
+  generateTradeProposalWhatsAppText: (match: TradeMatch) => string;
+
+  // Stats
   getTeamStats: (teamId: string) => { total: number; obtained: number; percentage: number };
 }
 
 const LOCAL_STORAGE_KEY = 'figucheck_user_stickers_v1';
-const LOCAL_STORAGE_SYNC_CODE = 'figucheck_sync_code_v1';
 
 const AlbumContext = createContext<AlbumContextType | undefined>(undefined);
 
-function generateRandomSyncCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let result = 'FIGU-';
-  for (let i = 0; i < 4; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
-
 export const AlbumProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [userStickers, setUserStickers] = useState<Record<number, number>>({});
-  const [syncCode, setSyncCodeState] = useState<string>('');
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState<boolean>(false);
@@ -60,24 +79,57 @@ export const AlbumProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     searchQuery: ''
   });
 
-  // Load initial data from localStorage
+  // ─── INIT: Load localStorage + Check Supabase Auth Session ───
   useEffect(() => {
-    try {
-      const savedStickers = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (savedStickers) {
-        setUserStickers(JSON.parse(savedStickers));
+    const init = async () => {
+      // Load local stickers
+      try {
+        const savedStickers = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (savedStickers) {
+          setUserStickers(JSON.parse(savedStickers));
+        }
+      } catch (e) {
+        console.error('Error loading localStorage:', e);
       }
 
-      let savedCode = localStorage.getItem(LOCAL_STORAGE_SYNC_CODE);
-      if (!savedCode) {
-        savedCode = generateRandomSyncCode();
-        localStorage.setItem(LOCAL_STORAGE_SYNC_CODE, savedCode);
+      // Check existing session
+      if (isSupabaseConfigured) {
+        const profile = await getCurrentUser();
+        if (profile) {
+          setUser(profile);
+          // Fetch remote stickers and merge
+          const remote = await fetchUserStickersFromSupabase(profile.id);
+          if (remote) {
+            setUserStickers((prev) => {
+              const merged = { ...prev };
+              Object.entries(remote).forEach(([numStr, count]) => {
+                const n = Number(numStr);
+                merged[n] = Math.max(merged[n] || 0, count);
+              });
+              return merged;
+            });
+          }
+        }
       }
-      setSyncCodeState(savedCode);
-    } catch (e) {
-      console.error('Error loading state from localStorage:', e);
-    } finally {
+
+      setIsAuthLoading(false);
       setIsInitialized(true);
+    };
+
+    init();
+
+    // Listen for auth state changes
+    if (supabase) {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        if (session?.user) {
+          const profile = await getCurrentUser();
+          setUser(profile);
+        } else {
+          setUser(null);
+        }
+      });
+
+      return () => subscription.unsubscribe();
     }
   }, []);
 
@@ -87,29 +139,86 @@ export const AlbumProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(userStickers));
     } catch (e) {
-      console.error('Error saving state to localStorage:', e);
+      console.error('Error saving localStorage:', e);
     }
   }, [userStickers, isInitialized]);
 
-  // Sync state with cloud
+  // ─── AUTH ────────────────────────────────────────────────────
+
+  const signUp = async (username: string, password: string, phoneWhatsapp?: string): Promise<boolean> => {
+    setAuthError(null);
+    const result = await authSignUp(username, password, phoneWhatsapp);
+    if (!result.success) {
+      setAuthError(result.error || 'Error al registrarse.');
+      return false;
+    }
+    // After signup, fetch user
+    const profile = await getCurrentUser();
+    if (profile) {
+      setUser(profile);
+      // Sync existing local stickers to new account
+      await syncUserStickersToSupabase(profile.id, userStickers);
+    }
+    return true;
+  };
+
+  const signIn = async (username: string, password: string): Promise<boolean> => {
+    setAuthError(null);
+    const result = await authSignIn(username, password);
+    if (!result.success) {
+      setAuthError(result.error || 'Error al iniciar sesión.');
+      return false;
+    }
+    const profile = await getCurrentUser();
+    if (profile) {
+      setUser(profile);
+      // Merge remote stickers with local
+      const remote = await fetchUserStickersFromSupabase(profile.id);
+      if (remote) {
+        setUserStickers((prev) => {
+          const merged = { ...prev };
+          Object.entries(remote).forEach(([numStr, count]) => {
+            const n = Number(numStr);
+            merged[n] = Math.max(merged[n] || 0, count);
+          });
+          return merged;
+        });
+      }
+    }
+    return true;
+  };
+
+  const handleSignOut = async () => {
+    await authSignOut();
+    setUser(null);
+    setAuthError(null);
+  };
+
+  const updatePhone = async (phone: string): Promise<boolean> => {
+    if (!user) return false;
+    const success = await updateUserProfile(user.id, phone);
+    if (success) {
+      setUser({ ...user, phoneWhatsapp: phone || undefined });
+    }
+    return success;
+  };
+
+  // ─── CLOUD SYNC ──────────────────────────────────────────────
+
   const syncCloud = useCallback(async () => {
-    if (!syncCode || isSyncing) return false;
+    if (!user || isSyncing) return false;
     setIsSyncing(true);
     try {
-      // 1. Fetch remote stickers
-      const remoteData = await fetchUserStickersFromSupabase(syncCode);
-      
+      const remote = await fetchUserStickersFromSupabase(user.id);
       let merged = { ...userStickers };
-      if (remoteData) {
-        // Merge strategy: take highest count
-        Object.entries(remoteData).forEach(([numStr, count]) => {
+      if (remote) {
+        Object.entries(remote).forEach(([numStr, count]) => {
           const n = Number(numStr);
           merged[n] = Math.max(merged[n] || 0, count);
         });
       }
 
-      // 2. Upload merged back to remote
-      const success = await syncUserStickersToSupabase(syncCode, merged);
+      const success = await syncUserStickersToSupabase(user.id, merged);
       if (success) {
         setUserStickers(merged);
         setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
@@ -121,24 +230,16 @@ export const AlbumProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } finally {
       setIsSyncing(false);
     }
-  }, [syncCode, isSyncing, userStickers]);
+  }, [user, isSyncing, userStickers]);
 
-  const setSyncCode = (code: string) => {
-    const formatted = code.trim().toUpperCase();
-    setSyncCodeState(formatted);
-    localStorage.setItem(LOCAL_STORAGE_SYNC_CODE, formatted);
-  };
+  // ─── STICKER MODIFIERS ──────────────────────────────────────
 
-  // Sticker modifiers
   const setStickerCount = useCallback((number: number, count: number) => {
     const validCount = Math.max(0, count);
     setUserStickers((prev) => {
       const next = { ...prev };
-      if (validCount === 0) {
-        delete next[number];
-      } else {
-        next[number] = validCount;
-      }
+      if (validCount === 0) delete next[number];
+      else next[number] = validCount;
       return next;
     });
   }, []);
@@ -147,21 +248,13 @@ export const AlbumProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setUserStickers((prev) => {
       const current = prev[number] || 0;
       const nextCount = current + 1;
-      
-      // Trigger celebration if reaching 100%
-      const newObtainedCount = Object.keys({ ...prev, [number]: nextCount }).length;
-      if (newObtainedCount === TOTAL_STICKER_COUNT) {
-        confetti({
-          particleCount: 100,
-          spread: 70,
-          origin: { y: 0.6 }
-        });
+      const newState = { ...prev, [number]: nextCount };
+
+      if (Object.keys(newState).length === TOTAL_STICKER_COUNT && current === 0) {
+        confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
       }
 
-      return {
-        ...prev,
-        [number]: nextCount
-      };
+      return newState;
     });
   }, []);
 
@@ -170,11 +263,8 @@ export const AlbumProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const current = prev[number] || 0;
       if (current <= 0) return prev;
       const next = { ...prev };
-      if (current === 1) {
-        delete next[number];
-      } else {
-        next[number] = current - 1;
-      }
+      if (current === 1) delete next[number];
+      else next[number] = current - 1;
       return next;
     });
   }, []);
@@ -183,46 +273,26 @@ export const AlbumProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setUserStickers({});
   }, []);
 
-  // Filters
-  const setFilterTeam = (teamId: string | 'ALL') => {
-    setFilters((prev) => ({ ...prev, teamId }));
-  };
+  // ─── FILTERS ─────────────────────────────────────────────────
 
-  const setFilterStatus = (status: StickerStatusFilter) => {
-    setFilters((prev) => ({ ...prev, status }));
-  };
+  const setFilterTeam = (teamId: string | 'ALL') => setFilters((p) => ({ ...p, teamId }));
+  const setFilterStatus = (status: StickerStatusFilter) => setFilters((p) => ({ ...p, status }));
+  const setSearchQuery = (searchQuery: string) => setFilters((p) => ({ ...p, searchQuery }));
 
-  const setSearchQuery = (searchQuery: string) => {
-    setFilters((prev) => ({ ...prev, searchQuery }));
-  };
+  // ─── STATS ───────────────────────────────────────────────────
 
-  // Stats calculation
   const stats: AlbumStats = useMemo(() => {
     let obtained = 0;
     let repeatedTotal = 0;
-
     Object.values(userStickers).forEach((count) => {
-      if (count >= 1) {
-        obtained++;
-      }
-      if (count > 1) {
-        repeatedTotal += (count - 1);
-      }
+      if (count >= 1) obtained++;
+      if (count > 1) repeatedTotal += (count - 1);
     });
-
     const missing = TOTAL_STICKER_COUNT - obtained;
-    const percentage = Math.round((obtained / TOTAL_STICKER_COUNT) * 1000) / 10; // e.g. 74.2
-
-    return {
-      total: TOTAL_STICKER_COUNT,
-      obtained,
-      missing,
-      repeatedTotal,
-      percentage
-    };
+    const percentage = Math.round((obtained / TOTAL_STICKER_COUNT) * 1000) / 10;
+    return { total: TOTAL_STICKER_COUNT, obtained, missing, repeatedTotal, percentage };
   }, [userStickers]);
 
-  // Team stats helper
   const getTeamStats = useCallback((teamId: string) => {
     const teamStickers = ALL_STICKERS.filter((s) => s.teamId === teamId);
     const total = teamStickers.length;
@@ -231,22 +301,18 @@ export const AlbumProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return { total, obtained, percentage };
   }, [userStickers]);
 
-  // Filtered sticker list
+  // ─── FILTERED LIST ───────────────────────────────────────────
+
   const filteredStickers = useMemo(() => {
     return ALL_STICKERS.filter((sticker) => {
-      // 1. Team Filter
-      if (filters.teamId !== 'ALL' && sticker.teamId !== filters.teamId) {
-        return false;
-      }
+      if (filters.teamId !== 'ALL' && sticker.teamId !== filters.teamId) return false;
 
-      // 2. Status Filter
       const count = userStickers[sticker.number] || 0;
       if (filters.status === 'HAVE' && count === 0) return false;
       if (filters.status === 'MISSING' && count > 0) return false;
       if (filters.status === 'REPEATED' && count <= 1) return false;
 
-      // 3. Search Query Filter (Search by sticker number, team name, team short name)
-      if (filters.searchQuery.trim() !== '') {
+      if (filters.searchQuery.trim()) {
         const q = filters.searchQuery.toLowerCase().trim();
         const numMatch = sticker.number.toString() === q || `#${sticker.number}` === q;
         const slotMatch = `${sticker.teamShortName.toLowerCase()} ${sticker.slotNumber}`.includes(q);
@@ -258,41 +324,55 @@ export const AlbumProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   }, [filters, userStickers]);
 
-  // WhatsApp share message generator
+  // ─── TRADE MATCHMAKING ──────────────────────────────────────
+
+  const getTradeMatches = useCallback(async (): Promise<TradeMatch[]> => {
+    if (!user) return [];
+    return await fetchTradeMatches(user.id, userStickers);
+  }, [user, userStickers]);
+
+  // ─── SHARE TEXT ──────────────────────────────────────────────
+
   const generateWhatsAppShareText = useCallback(() => {
     const missingList: string[] = [];
     const repeatedList: string[] = [];
 
     ALL_STICKERS.forEach((sticker) => {
       const count = userStickers[sticker.number] || 0;
-      const stickerLabel = `${sticker.teamShortName} #${sticker.slotNumber} (N°${sticker.number})`;
-
-      if (count === 0) {
-        missingList.push(stickerLabel);
-      } else if (count > 1) {
-        repeatedList.push(`${stickerLabel} [x${count - 1}]`);
-      }
+      const label = `${sticker.teamShortName} #${sticker.slotNumber} (N°${sticker.number})`;
+      if (count === 0) missingList.push(label);
+      else if (count > 1) repeatedList.push(`${label} [x${count - 1}]`);
     });
 
     let text = `⚽ *FIGUCHECK - ÁLBUM FUTSAL MENDOZA* ⚽\n`;
+    if (user?.username) text += `👤 ${user.username}\n`;
     text += `📊 Progreso: ${stats.obtained}/${stats.total} (${stats.percentage}%)\n\n`;
-
-    text += `🔁 *MIS REPETIDAS (${repeatedList.length} distintas, ${stats.repeatedTotal} extras):*\n`;
-    if (repeatedList.length > 0) {
-      text += repeatedList.join(', ') + '\n\n';
-    } else {
-      text += 'Ninguna por el momento.\n\n';
-    }
-
+    text += `🔁 *MIS REPETIDAS (${repeatedList.length}):*\n`;
+    text += repeatedList.length > 0 ? repeatedList.join(', ') + '\n\n' : 'Ninguna.\n\n';
     text += `❌ *ME FALTAN (${missingList.length}):*\n`;
-    if (missingList.length > 0) {
-      text += missingList.join(', ') + '\n';
-    } else {
-      text += '¡Álbum Completo! 🎉\n';
-    }
-
+    text += missingList.length > 0 ? missingList.join(', ') + '\n' : '¡Álbum Completo! 🎉\n';
     return text;
-  }, [userStickers, stats]);
+  }, [userStickers, stats, user]);
+
+  const generateTradeProposalWhatsAppText = useCallback((match: TradeMatch) => {
+    const fmt = (num: number) => {
+      const s = ALL_STICKERS.find((item) => item.number === num);
+      return s ? `${s.teamShortName} #${s.slotNumber} (N°${num})` : `N°${num}`;
+    };
+
+    let text = `🤝 *PROPUESTA DE CANJE - FIGUCHECK* 🤝\n\n`;
+    text += `Hola *${match.username}*! Vi en FiguCheck que podemos cambiar figuritas:\n\n`;
+    if (match.stickersTheyHaveThatINeed.length > 0) {
+      text += `📌 *Tenés y a mí me faltan (${match.stickersTheyHaveThatINeed.length}):*\n`;
+      text += match.stickersTheyHaveThatINeed.map(fmt).join(', ') + '\n\n';
+    }
+    if (match.stickersIHaveThatTheyNeed.length > 0) {
+      text += `🔁 *Tengo repetidas que a vos te faltan (${match.stickersIHaveThatTheyNeed.length}):*\n`;
+      text += match.stickersIHaveThatTheyNeed.map(fmt).join(', ') + '\n\n';
+    }
+    text += `¿Coordinamos para cambiar? ¡Saludos!`;
+    return text;
+  }, []);
 
   return (
     <AlbumContext.Provider
@@ -302,9 +382,17 @@ export const AlbumProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         userStickers,
         filters,
         stats,
-        syncCode,
+        filteredStickers,
+        user,
+        isAuthLoading,
+        authError,
+        signUp,
+        signIn,
+        signOut: handleSignOut,
+        updatePhone,
         isSyncing,
         lastSyncTime,
+        syncCloud,
         setFilterTeam,
         setFilterStatus,
         setSearchQuery,
@@ -312,10 +400,9 @@ export const AlbumProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         decrementSticker,
         setStickerCount,
         resetAllStickers,
-        setSyncCode,
-        syncCloud,
+        getTradeMatches,
         generateWhatsAppShareText,
-        filteredStickers,
+        generateTradeProposalWhatsAppText,
         getTeamStats
       }}
     >
@@ -326,8 +413,6 @@ export const AlbumProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
 export const useAlbum = () => {
   const context = useContext(AlbumContext);
-  if (!context) {
-    throw new Error('useAlbum must be used within an AlbumProvider');
-  }
+  if (!context) throw new Error('useAlbum must be used within AlbumProvider');
   return context;
 };
