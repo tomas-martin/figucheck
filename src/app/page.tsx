@@ -38,14 +38,20 @@ export default function Home() {
       {/* Footer */}
       <footer className="border-t border-slate-800/80 bg-slate-900/50 py-8 px-4 text-center text-xs text-slate-400 mt-auto">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="FiguCheck Logo" className="w-6 h-6 rounded-md object-cover ring-1 ring-emerald-500/30" />
-            <span className="font-semibold text-slate-300">FiguCheck Mendoza</span>
-            <span>•</span>
+          <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3 text-center sm:text-left">
+            <div className="flex items-center gap-2">
+              <img src="/logo.png" alt="FiguCheck Logo" className="w-6 h-6 rounded-md object-cover ring-1 ring-emerald-500/30" />
+              <span className="font-semibold text-slate-300">FiguCheck Mendoza</span>
+            </div>
+            <span className="hidden sm:inline text-slate-600">•</span>
             <span className="text-slate-500">252 Figuritas (16 Equipos + Leyendas)</span>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-6">
+            <p className="text-slate-400 font-medium">
+              © 2026 <span className="font-bold bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">TottiDev</span> · Developed by <span className="text-slate-200 font-semibold">Tomás Martín</span>
+            </p>
+
             <button
               onClick={() => setShowResetConfirm(true)}
               className="flex items-center gap-1.5 text-rose-400 hover:text-rose-300 transition-colors font-medium text-xs"
