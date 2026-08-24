@@ -20,6 +20,12 @@ export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
 
+// Helper to convert username into a standard valid email for Supabase Auth
+function usernameToEmail(username: string): string {
+  const clean = username.toLowerCase().replace(/[^a-z0-9_]/g, '');
+  return `${clean}.figucheck@gmail.com`;
+}
+
 // ─── AUTH FUNCTIONS ─────────────────────────────────────────────
 
 export async function signUp(username: string, password: string, phoneWhatsapp?: string): Promise<{ success: boolean; error?: string; userId?: string }> {
@@ -30,8 +36,7 @@ export async function signUp(username: string, password: string, phoneWhatsapp?:
     };
   }
 
-  // We use a fake email derived from the username for Supabase Auth
-  const email = `${username.toLowerCase().replace(/[^a-z0-9_]/g, '')}@figucheck.app`;
+  const email = usernameToEmail(username);
 
   try {
     const { data, error } = await supabase.auth.signUp({
@@ -46,7 +51,7 @@ export async function signUp(username: string, password: string, phoneWhatsapp?:
     });
 
     if (error) {
-      if (error.message.includes('already registered')) {
+      if (error.message.includes('already registered') || error.message.includes('User already registered')) {
         return { success: false, error: 'Ese nombre de usuario ya está registrado.' };
       }
       return { success: false, error: error.message };
@@ -54,7 +59,7 @@ export async function signUp(username: string, password: string, phoneWhatsapp?:
 
     return { success: true, userId: data.user?.id };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Error de conexión con Supabase (verificá tu URL en .env.local).' };
+    return { success: false, error: err?.message || 'Error de conexión con Supabase.' };
   }
 }
 
@@ -66,7 +71,7 @@ export async function signIn(username: string, password: string): Promise<{ succ
     };
   }
 
-  const email = `${username.toLowerCase().replace(/[^a-z0-9_]/g, '')}@figucheck.app`;
+  const email = usernameToEmail(username);
 
   try {
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -83,7 +88,7 @@ export async function signIn(username: string, password: string): Promise<{ succ
 
     return { success: true, userId: data.user?.id };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Error de conexión con Supabase (verificá tu URL en .env.local).' };
+    return { success: false, error: err?.message || 'Error de conexión con Supabase.' };
   }
 }
 
