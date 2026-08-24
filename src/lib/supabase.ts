@@ -22,8 +22,14 @@ export const supabase = isSupabaseConfigured
 
 // Helper to convert username into a standard valid email for Supabase Auth
 function usernameToEmail(username: string): string {
-  const clean = username.toLowerCase().replace(/[^a-z0-9_]/g, '');
-  return `${clean}.figucheck@gmail.com`;
+  const clean = username
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Quitar tildes/acentos
+    .replace(/[^a-z0-9_]/g, ''); // Quitar otros caracteres no alfanuméricos
+
+  return `${clean || 'user'}.figucheck@gmail.com`;
 }
 
 // ─── AUTH FUNCTIONS ─────────────────────────────────────────────
@@ -54,7 +60,18 @@ export async function signUp(username: string, password: string, phoneWhatsapp?:
       if (error.message.includes('already registered') || error.message.includes('User already registered')) {
         return { success: false, error: 'Ese nombre de usuario ya está registrado.' };
       }
+      if (error.message.toLowerCase().includes('disabled') || error.message.toLowerCase().includes('provider')) {
+        return { success: false, error: 'El proveedor Email está desactivado en Supabase. Activalo en el Panel > Authentication > Providers > Email.' };
+      }
       return { success: false, error: error.message };
+    }
+
+    if (data.user && !data.session) {
+      // Sign up succeeded but session is null because email confirmation is ON
+      return {
+        success: false,
+        error: 'Tenés activa la opción "Confirm email" en Supabase. Por favor desactivala en el Panel de Supabase (Authentication > Providers > Email).'
+      };
     }
 
     return { success: true, userId: data.user?.id };
@@ -82,6 +99,9 @@ export async function signIn(username: string, password: string): Promise<{ succ
     if (error) {
       if (error.message.includes('Invalid login')) {
         return { success: false, error: 'Usuario o contraseña incorrectos.' };
+      }
+      if (error.message.includes('Email not confirmed')) {
+        return { success: false, error: 'Tenés activa la confirmación de mail en Supabase. Desactivá "Confirm email" en Authentication > Providers > Email.' };
       }
       return { success: false, error: error.message };
     }
