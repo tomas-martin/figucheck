@@ -39,9 +39,7 @@ export default function Home() {
       <footer className="border-t border-slate-800/80 bg-slate-900/50 py-8 px-4 text-center text-xs text-slate-400 mt-auto">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
-              FC
-            </div>
+            <img src="/logo.png" alt="FiguCheck Logo" className="w-6 h-6 rounded-md object-cover ring-1 ring-emerald-500/30" />
             <span className="font-semibold text-slate-300">FiguCheck Mendoza</span>
             <span>•</span>
             <span className="text-slate-500">252 Figuritas (16 Equipos + Leyendas)</span>
