@@ -9,6 +9,11 @@ export const metadata: Metadata = {
   title: 'FiguCheck - Album Contador Futsal Mendoza',
   description: 'App web contador de figuritas para controlar tus faltantes y repetidas del Futsal Mendoza. 252 figuritas en 16 equipos + Leyendas.',
   keywords: ['figuritas', 'futsal', 'mendoza', 'album', 'contador', 'repetidas', 'scorefy'],
+  appleWebApp: {
+    capable: true,
+    title: 'FiguCheck',
+    statusBarStyle: 'black-translucent',
+  },
   icons: {
     icon: '/logo.png',
     apple: '/logo.png',
