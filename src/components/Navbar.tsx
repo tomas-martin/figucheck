@@ -2,11 +2,12 @@
 
 import React, { useState } from 'react';
 import { useAlbum } from '../context/AlbumContext';
-import { Share2, RefreshCw, Award, Trophy, Handshake, User, LogIn, LogOut } from 'lucide-react';
+import { Share2, RefreshCw, Award, Trophy, Handshake, User, LogIn, LogOut, BookOpen } from 'lucide-react';
 import ShareModal from './ShareModal';
 import AuthModal from './AuthModal';
 import ProfileModal from './ProfileModal';
 import TradeMarketModal from './TradeMarketModal';
+import UserManualModal from './UserManualModal';
 
 export default function Navbar() {
   const { stats, isSyncing, user, signOut, syncCloud } = useAlbum();
@@ -14,20 +15,32 @@ export default function Navbar() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showTradeModal, setShowTradeModal] = useState(false);
+  const [showManualModal, setShowManualModal] = useState(false);
+
+  const scrollToTop = () => {
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth',
+    });
+  };
 
   return (
     <>
       <header className="sticky top-0 z-40 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 text-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           
-          {/* Logo & Brand */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl overflow-hidden shadow-lg shadow-emerald-500/30 ring-1 ring-emerald-500/40 bg-slate-900 flex-shrink-0">
+          {/* Logo & Brand (Click to scroll top) */}
+          <button
+            onClick={scrollToTop}
+            className="flex items-center gap-3 text-left focus:outline-none group cursor-pointer"
+            title="Volver al inicio (scroll arriba)"
+          >
+            <div className="w-10 h-10 rounded-xl overflow-hidden shadow-lg shadow-emerald-500/30 ring-1 ring-emerald-500/40 bg-slate-900 flex-shrink-0 group-hover:scale-105 transition-transform">
               <img src="/logo.png" alt="FiguCheck Logo" className="w-full h-full object-cover" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-white via-slate-100 to-emerald-400 bg-clip-text text-transparent">
+                <span className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-white via-slate-100 to-emerald-400 bg-clip-text text-transparent group-hover:from-emerald-300 group-hover:to-teal-300 transition-colors">
                   FiguCheck
                 </span>
                 <span className="text-[10px] font-semibold tracking-wide uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hidden sm:inline">
@@ -38,7 +51,7 @@ export default function Navbar() {
                 Contador de figuritas 2026
               </p>
             </div>
-          </div>
+          </button>
 
           {/* Center Progress pill (desktop) */}
           <div className="hidden lg:flex items-center gap-4 bg-slate-800/80 border border-slate-700/60 rounded-full px-4 py-1.5">
@@ -61,6 +74,16 @@ export default function Navbar() {
           {/* Action buttons */}
           <div className="flex items-center gap-2 sm:gap-2.5">
             
+            {/* Manual Button */}
+            <button
+              onClick={() => setShowManualModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all active:scale-95 shadow-sm"
+              title="Manual de Usuario"
+            >
+              <BookOpen className="w-4 h-4 text-emerald-400" />
+              <span className="hidden sm:inline">Manual</span>
+            </button>
+
             {/* Trade Market */}
             <button
               onClick={() => setShowTradeModal(true)}
@@ -130,6 +153,7 @@ export default function Navbar() {
       </header>
 
       {/* Modals */}
+      {showManualModal && <UserManualModal onClose={() => setShowManualModal(false)} />}
       {showShareModal && <ShareModal onClose={() => setShowShareModal(false)} />}
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
       {showProfileModal && <ProfileModal onClose={() => setShowProfileModal(false)} />}
@@ -145,3 +169,4 @@ export default function Navbar() {
     </>
   );
 }
+
