@@ -264,7 +264,7 @@ export async function fetchTradeMatches(
 
       Object.entries(uStickers).forEach(([numStr, count]) => {
         const num = Number(numStr);
-        if (count >= 1 && myMissingSet.has(num)) {
+        if (count > 1 && myMissingSet.has(num)) {
           stickersTheyHaveThatINeed.push(num);
         }
       });
@@ -278,7 +278,7 @@ export async function fetchTradeMatches(
 
       const matchScore = stickersTheyHaveThatINeed.length + stickersIHaveThatTheyNeed.length;
 
-      if (matchScore > 0) {
+      if (stickersTheyHaveThatINeed.length > 0 && stickersIHaveThatTheyNeed.length > 0) {
         matches.push({
           userId: p.id,
           username: p.username || 'Coleccionista',
